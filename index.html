@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web3 Jobs</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {
+                            50: '#f0fdf4',
+                            100: '#dcfce7',
+                            200: '#bbf7d0',
+                            300: '#86efac',
+                            400: '#4ade80',
+                            500: '#22c55e',
+                            600: '#16a34a',
+                            700: '#15803d',
+                            800: '#166534',
+                            900: '#14532d',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 20px rgba(34, 197, 94, 0.4); }
+            50% { box-shadow: 0 0 40px rgba(34, 197, 94, 0.8); }
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+        }
+        @keyframes shimmer {
+            0% { background-position: -200% center; }
+            100% { background-position: 200% center; }
+        }
+        @keyframes mega-pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.05); opacity: 0.9; }
+        }
+        @keyframes glow-text {
+            0%, 100% { text-shadow: 0 0 20px rgba(34, 197, 94, 0.8), 0 0 40px rgba(34, 197, 94, 0.4); }
+            50% { text-shadow: 0 0 40px rgba(34, 197, 94, 1), 0 0 80px rgba(34, 197, 94, 0.6); }
+        }
+        .coming-soon-card {
+            animation: pulse-glow 2s ease-in-out infinite;
+        }
+        .float-animation {
+            animation: float 3s ease-in-out infinite;
+        }
+        .shimmer-text {
+            background: linear-gradient(90deg, #22c55e 0%, #86efac 25%, #22c55e 50%, #86efac 75%, #22c55e 100%);
+            background-size: 200% auto;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: shimmer 3s linear infinite;
+        }
+        .gradient-border {
+            background: linear-gradient(135deg, #22c55e, #4ade80, #86efac);
+            padding: 3px;
+            border-radius: 1rem;
+        }
+        .mega-coming-soon {
+            animation: mega-pulse 2s ease-in-out infinite;
+        }
+        .glow-text {
+            animation: glow-text 2s ease-in-out infinite;
+        }
+        .coming-soon-banner {
+            background: linear-gradient(135deg, #14532d 0%, #166534 50%, #15803d 100%);
+        }
+        .huge-text {
+            font-size: clamp(2rem, 8vw, 4rem);
+            letter-spacing: 0.1em;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="app"></div>
+
+    <script>
+        // ===== REPLACE THESE WITH YOUR SUPABASE CREDENTIALS =====
+        const SUPABASE_URL = 'https://zuixelwieepvmxycbzpf.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp1aXhlbHdpZWVwdm14eWNienBmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMxNDg4NDksImV4cCI6MjA3ODcyNDg0OX0._IomKwIXiZ5rH7lEobSlPLT8t1G27GicfKhrRTjRcJ8';
+        // ========================================================
+
+        // Initialize Supabase
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        // Initialize Telegram WebApp
+        const tg = window.Telegram?.WebApp || { initDataUnsafe: { user: { id: 'demo', username: 'DemoUser' } } };
+        if (tg.expand) tg.expand();
+
+        // App State
+        let state = {
+            activeTab: 'browse',
+            jobs: [],
+            userProfile: null,
+            selectedJob: null,
+            searchTerm: '',
+            selectedCategory: 'all',
+            loading: true,
+            jobForm: {
+                title: '',
+                category: '',
+                description: '',
+                budget: '',
+                paymentType: 'Fixed',
+                contactInfo: '',
+                requirements: ''
+            }
+        };
+
+        const categories = [
+            'All',
+            'Community Mod',
+            'Shiller',
+            'Raider',
+            'Project Manager',
+            'Marketer',
+            'Graphic Designer',
+            'Video Editor'
+        ];
+
+        // ===== DATABASE FUNCTIONS =====
+        async function loadUserProfile() {
+            const userId = tg.initDataUnsafe?.user?.id || 'demo';
+            
+            const { data, error } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('telegram_id', userId)
+                .single();
+
+            if (error && error.code === 'PGRST116') {
+                const newUser = {
+                    telegram_id: userId,
+                    username: tg.initDataUnsafe?.user?.username || 'User',
+                    premium_status: false,
+                    bio: 'Web3 enthusiast',
+                    skills: ['Community Management']
+                };
+                
+                const { data: created, error: createError } = await supabase
+                    .from('profiles')
+                    .insert(newUser)
+                    .select()
+                    .single();
+                
+                if (!createError) {
+                    state.userProfile = created;
+                }
+            } else if (!error) {
+                state.userProfile = data;
+            }
+        }
+
+        async function loadJobs() {
+            state.loading = true;
+            render();
+
+            const { data, error } = await supabase
+                .from('jobs')
+                .select(`
+                    *,
+                    posted_by:profiles(username)
+                `)
+                .order('posted_date', { ascending: false });
+
+            if (!error) {
+                state.jobs = data.map(job => ({
+                    ...job,
+                    is_premium: new Date(job.public_release_date) > new Date()
+                }));
+            }
+
+            state.loading = false;
+            render();
+        }
+
+        async function createJob() {
+            if (!state.jobForm.title || !state.jobForm.category || !state.jobForm.description) {
+                alert('Please fill in all required fields');
+                return;
+            }
+
+            const newJob = {
+                title: state.jobForm.title,
+                category: state.jobForm.category,
+                description: state.jobForm.description,
+                budget: parseFloat(state.jobForm.budget) || 0,
+                payment_type: state.jobForm.paymentType,
+                contact_info: state.jobForm.contactInfo,
+                requirements: state.jobForm.requirements,
+                posted_by: state.userProfile.id,
+                status: 'open',
+                public_release_date: new Date().toISOString()
+            };
+
+            const { error } = await supabase
+                .from('jobs')
+                .insert(newJob);
+
+            if (!error) {
+                alert('Job posted successfully!');
+                state.jobForm = {
+                    title: '',
+                    category: '',
+                    description: '',
+                    budget: '',
+                    paymentType: 'Fixed',
+                    contactInfo: '',
+                    requirements: ''
+                };
+                await loadJobs();
+                state.activeTab = 'browse';
+            } else {
+                alert('Error posting job: ' + error.message);
+            }
+            render();
+        }
+
+        async function applyToJob(jobId) {
+            const application = {
+                job_id: jobId,
+                applicant_id: state.userProfile.id,
+                cover_letter: 'I am interested in this position',
+                status: 'pending'
+            };
+
+            const { error } = await supabase
+                .from('applications')
+                .insert(application);
+
+            if (!error) {
+                alert('Application submitted successfully!');
+                state.selectedJob = null;
+            } else {
+                alert('Error submitting application: ' + error.message);
+            }
+            render();
+        }
+
+        // ===== COMING SOON COMPONENT =====
+        function renderComingSoonSection(title, icon, description) {
+            return `
+                <div class="min-h-[60vh] flex items-center justify-center p-4">
+                    <div class="coming-soon-card bg-gradient-to-br from-green-50 to-emerald-100 rounded-2xl p-8 max-w-md w-full text-center border-2 border-green-200">
+                        <div class="float-animation text-7xl mb-6">${icon}</div>
+                        <h2 class="text-4xl font-black mb-4 shimmer-text">${title}</h2>
+                        <div class="gradient-border inline-block mb-6">
+                            <div class="bg-white rounded-xl px-8 py-4">
+                                <span class="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-green-600 to-emerald-500">
+                                    COMING SOON
+                                </span>
+                            </div>
+                        </div>
+                        <p class="text-gray-600 text-lg mb-6">${description}</p>
+                        <div class="flex justify-center gap-2">
+                            <div class="w-3 h-3 bg-green-500 rounded-full animate-bounce" style="animation-delay: 0s;"></div>
+                            <div class="w-3 h-3 bg-green-400 rounded-full animate-bounce" style="animation-delay: 0.2s;"></div>
+                            <div class="w-3 h-3 bg-green-300 rounded-full animate-bounce" style="animation-delay: 0.4s;"></div>
+                        </div>
+                        <div class="mt-6 p-4 bg-green-600/10 rounded-xl">
+                            <p class="text-green-700 font-medium">We're working hard to bring you this feature!</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // ===== RENDER FUNCTIONS =====
+        function getFilteredJobs() {
+            return state.jobs.filter(job => {
+                const matchesSearch = job.title.toLowerCase().includes(state.searchTerm.toLowerCase()) ||
+                                     job.description.toLowerCase().includes(state.searchTerm.toLowerCase());
+                const matchesCategory = state.selectedCategory === 'all' || 
+                                       job.category.toLowerCase() === state.selectedCategory.toLowerCase();
+                const canView = !job.is_premium || state.userProfile?.premium_status;
+                return matchesSearch && matchesCategory && canView;
+            });
+        }
+
+        function renderJobCard(job) {
+            return `
+                <div class="bg-white rounded-xl p-5 mb-4 shadow-md border border-green-100 hover:shadow-lg hover:border-green-300 transition-all duration-300 cursor-pointer transform hover:-translate-y-1"
+                     onclick="state.selectedJob = ${JSON.stringify(job).replace(/"/g, '&quot;')}; render();">
+                    <div class="flex justify-between items-start mb-3">
+                        <h3 class="font-bold text-gray-900 text-lg">${job.title}</h3>
+                        ${job.is_premium && !state.userProfile?.premium_status ? 
+                            '<span class="bg-gradient-to-r from-yellow-400 to-amber-500 text-white text-xs px-3 py-1 rounded-full font-semibold shadow-sm">⭐ Premium</span>' : ''}
+                    </div>
+                    <p class="text-gray-600 text-sm mb-4 line-clamp-2">${job.description.substring(0, 120)}...</p>
+                    <div class="flex flex-wrap gap-2 mb-4">
+                        <span class="bg-green-100 text-green-800 text-xs px-3 py-1.5 rounded-full font-medium">${job.category}</span>
+                        <span class="bg-emerald-100 text-emerald-800 text-xs px-3 py-1.5 rounded-full font-medium">💲 $${job.budget}</span>
+                        <span class="bg-gray-100 text-gray-700 text-xs px-3 py-1.5 rounded-full font-medium">${job.payment_type}</span>
+                    </div>
+                    <div class="flex justify-between items-center text-xs text-gray-500 pt-3 border-t border-gray-100">
+                        <span class="flex items-center gap-1">
+                            <span class="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center text-white text-xs font-bold">${(job.posted_by?.username || 'U')[0].toUpperCase()}</span>
+                            @${job.posted_by?.username || 'Unknown'}
+                        </span>
+                        <span class="text-gray-400">🕐 ${new Date(job.posted_date).toLocaleDateString()}</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderComingSoonBanner() {
+            return `
+                <div class="coming-soon-banner mega-coming-soon rounded-2xl p-6 mb-5 text-center shadow-2xl border-4 border-green-400">
+                    <div class="huge-text font-black text-white glow-text tracking-wider">
+                        COMING SOON
+                    </div>
+                    <div class="flex justify-center gap-3 mt-4">
+                        <div class="w-4 h-4 bg-green-300 rounded-full animate-bounce" style="animation-delay: 0s;"></div>
+                        <div class="w-4 h-4 bg-green-400 rounded-full animate-bounce" style="animation-delay: 0.15s;"></div>
+                        <div class="w-4 h-4 bg-green-500 rounded-full animate-bounce" style="animation-delay: 0.3s;"></div>
+                        <div class="w-4 h-4 bg-green-400 rounded-full animate-bounce" style="animation-delay: 0.45s;"></div>
+                        <div class="w-4 h-4 bg-green-300 rounded-full animate-bounce" style="animation-delay: 0.6s;"></div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderBrowseTab() {
+            const filteredJobs = getFilteredJobs();
+            
+            return `
+                ${renderComingSoonBanner()}
+
+                ${!state.userProfile?.premium_status ? `
+                    <div class="bg-gradient-to-r from-green-500 via-emerald-500 to-teal-500 rounded-2xl p-5 mb-5 text-white shadow-lg">
+                        <div class="flex items-start gap-4">
+                            <span class="text-4xl float-animation">⭐</span>
+                            <div class="flex-1">
+                                <h3 class="font-bold text-xl mb-2">Upgrade to Premium</h3>
+                                <p class="text-green-100 mb-4">Get 2-day early access to all jobs for just $3/month!</p>
+                                <button class="bg-white text-green-600 px-6 py-2.5 rounded-xl font-bold text-sm hover:bg-green-50 transition-colors shadow-md">
+                                    Upgrade Now ✨
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                ` : ''}
+
+                <div class="mb-5">
+                    <div class="relative mb-4">
+                        <input
+                            type="text"
+                            placeholder="🔍 Search jobs..."
+                            value="${state.searchTerm}"
+                            oninput="state.searchTerm = this.value; render();"
+                            class="w-full pl-5 pr-5 py-4 border-2 border-green-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white shadow-sm text-gray-700 placeholder-gray-400"
+                        />
+                    </div>
+
+                    <div class="flex gap-2 overflow-x-auto pb-3 scrollbar-hide">
+                        ${categories.map(cat => `
+                            <button
+                                onclick="state.selectedCategory = '${cat.toLowerCase()}'; render();"
+                                class="px-5 py-2.5 rounded-xl text-sm font-semibold whitespace-nowrap transition-all duration-200 ${
+                                    state.selectedCategory === cat.toLowerCase()
+                                        ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-md'
+                                        : 'bg-white text-gray-600 hover:bg-green-50 border border-green-200'
+                                }"
+                            >
+                                ${cat}
+                            </button>
+                        `).join('')}
+                    </div>
+                </div>
+
+                ${state.loading ? `
+                    <div class="text-center py-16">
+                        <div class="animate-spin rounded-full h-16 w-16 border-4 border-green-200 border-t-green-600 mx-auto"></div>
+                        <p class="text-gray-500 mt-6 font-medium">Loading amazing opportunities...</p>
+                    </div>
+                ` : filteredJobs.length === 0 ? `
+                    <div class="text-center py-16">
+                        <div class="text-8xl mb-6">💼</div>
+                        <h3 class="text-xl font-bold text-gray-700 mb-2">No jobs found</h3>
+                        <p class="text-gray-500">Try adjusting your search or filters</p>
+                    </div>
+                ` : filteredJobs.map(job => renderJobCard(job)).join('')}
+            `;
+        }
+
+        function renderPostTab() {
+            return `
+                ${renderComingSoonBanner()}
+
+                <div class="bg-white rounded-2xl p-6 shadow-lg border border-green-100">
+                    <div class="flex items-center gap-3 mb-6">
+                        <div class="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-500 rounded-xl flex items-center justify-center">
+                            <span class="text-2xl">💼</span>
+                        </div>
+                        <div>
+                            <h2 class="text-2xl font-black text-gray-900">Post a Job</h2>
+                            <p class="text-gray-500 text-sm">Find the perfect candidate for your Web3 project</p>
+                        </div>
+                    </div>
+                    <div class="space-y-5">
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">Job Title *</label>
+                            <input
+                                type="text"
+                                placeholder="e.g., Community Moderator Needed"
+                                value="${state.jobForm.title}"
+                                oninput="state.jobForm.title = this.value"
+                                class="w-full px-4 py-3.5 border-2 border-green-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
+                            />
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">Category *</label>
+                            <select 
+                                onchange="state.jobForm.category = this.value"
+                                class="w-full px-4 py-3.5 border-2 border-green-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all bg-white"
+                            >
+                                <option value="">Select category...</option>
+                                ${categories.slice(1).map(cat => `
+                                    <option value="${cat}" ${state.jobForm.category === cat ? 'selected' : ''}>${cat}</option>
+                                `).join('')}
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">Description *</label>
+                            <textarea
+                                rows="4"
+                                placeholder="Describe the job requirements in detail..."
+                                oninput="state.jobForm.description = this.value"
+                                class="w-full px-4 py-3.5 border-2 border-green-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all resize-none"
+                            >${state.jobForm.description}</textarea>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">Budget ($)</label>
+                                <input
+                                    type="number"
+                                    placeholder="500"
+                                    value="${state.jobForm.budget}"
+                                    oninput="state.jobForm.budget = this.value"
+                                    class="w-full px-4 py-3.5 border-2 border-green-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
+                                />
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">Payment Type</label>
+                                <select 
+                                    onchange="state.jobForm.paymentType = this.value"
+                                    class="w-full px-4 py-3.5 border-2 border-green-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all bg-white"
+                                >
+                                    <option value="Fixed" ${state.jobForm.paymentType === 'Fixed' ? 'selected' : ''}>Fixed</option>
+                                    <option value="Hourly" ${state.jobForm.paymentType === 'Hourly' ? 'selected' : ''}>Hourly</option>
+                                    <option value="Monthly" ${state.jobForm.paymentType === 'Monthly' ? 'selected' : ''}>Monthly</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">Requirements</label>
+                            <textarea
+                                rows="3"
+                                placeholder="List specific skills or experience needed..."
+                                oninput="state.jobForm.requirements = this.value"
+                                class="w-full px-4 py-3.5 border-2 border-green-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all resize-none"
+                            >${state.jobForm.requirements}</textarea>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">Contact Info</label>
+                            <input
+                                type="text"
+                                placeholder="@yourtelegram or email"
+                                value="${state.jobForm.contactInfo}"
+                                oninput="state.jobForm.contactInfo = this.value"
+                                class="w-full px-4 py-3.5 border-2 border-green-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
+                            />
+                        </div>
+
+                        <button
+                            onclick="createJob()"
+                            class="w-full bg-gradient-to-r from-green-500 to-emerald-500 text-white py-4 rounded-xl hover:from-green-600 hover:to-emerald-600 transition-all font-bold text-lg shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+                        >
+                            🚀 Post Job
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderMyJobsTab() {
+            return renderComingSoonSection(
+                'My Jobs',
+                '📋',
+                'Track all your posted jobs and applications in one place. Manage applicants, update job status, and more!'
+            );
+        }
+
+        function renderProfileTab() {
+            return renderComingSoonSection(
+                'Profile',
+                '👤',
+                'Build your Web3 portfolio, showcase your skills, and let employers discover your talent!'
+            );
+        }
+
+        function renderJobModal() {
+            if (!state.selectedJob) return '';
+            
+            const job = state.selectedJob;
+            return `
+                <div class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50" onclick="if(event.target === this) { state.selectedJob = null; render(); }">
+                    <div class="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
+                        <div class="p-6">
+                            <div class="flex justify-between items-start mb-5">
+                                <h2 class="text-2xl font-black text-gray-900">${job.title}</h2>
+                                <button onclick="state.selectedJob = null; render();" class="w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors text-xl">✕</button>
+                            </div>
+                            
+                            <div class="flex flex-wrap gap-2 mb-5">
+                                <span class="bg-green-100 text-green-800 text-sm px-4 py-2 rounded-full font-semibold">${job.category}</span>
+                                <span class="bg-emerald-100 text-emerald-800 text-sm px-4 py-2 rounded-full font-semibold">💲 $${job.budget} ${job.payment_type}</span>
+                            </div>
+
+                            <div class="mb-5 p-4 bg-gray-50 rounded-xl">
+                                <h3 class="font-bold text-gray-900 mb-2 flex items-center gap-2">
+                                    <span class="text-lg">📝</span> Description
+                                </h3>
+                                <p class="text-gray-700 leading-relaxed">${job.description}</p>
+                            </div>
+
+                            ${job.requirements ? `
+                                <div class="mb-5 p-4 bg-green-50 rounded-xl">
+                                    <h3 class="font-bold text-gray-900 mb-2 flex items-center gap-2">
+                                        <span class="text-lg">✅</span> Requirements
+                                    </h3>
+                                    <p class="text-gray-700 leading-relaxed">${job.requirements}</p>
+                                </div>
+                            ` : ''}
+
+                            <div class="mb-6 p-4 bg-emerald-50 rounded-xl">
+                                <h3 class="font-bold text-gray-900 mb-2 flex items-center gap-2">
+                                    <span class="text-lg">📞</span> Contact
+                                </h3>
+                                <p class="text-gray-700">${job.contact_info || 'Not provided'}</p>
+                            </div>
+
+                            <button 
+                                onclick="applyToJob('${job.id}')"
+                                class="w-full bg-gradient-to-r from-green-500 to-emerald-500 text-white py-4 rounded-xl hover:from-green-600 hover:to-emerald-600 transition-all font-bold text-lg shadow-lg"
+                            >
+                                🎯 Apply for this Job
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function render() {
+            const app = document.getElementById('app');
+            app.innerHTML = `
+                <div class="min-h-screen bg-gradient-to-b from-gray-50 to-green-50/30 pb-24">
+                    <!-- Header -->
+                    <div class="bg-gradient-to-r from-green-600 via-emerald-600 to-teal-600 text-white p-6 shadow-xl">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-4">
+                                <div class="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-sm">
+                                    <span class="text-3xl">💼</span>
+                                </div>
+                                <div>
+                                    <h1 class="text-3xl font-black tracking-tight">Web3 Jobs</h1>
+                                    <p class="text-green-100">Find your next gig in Web3</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mt-4 bg-white/20 backdrop-blur-sm rounded-xl p-3 text-center">
+                            <span class="text-2xl font-black tracking-widest glow-text">COMING SOON</span>
+                        </div>
+                    </div>
+
+                    <!-- Main Content -->
+                    <div class="p-4">
+                        ${state.activeTab === 'browse' ? renderBrowseTab() : ''}
+                        ${state.activeTab === 'post' ? renderPostTab() : ''}
+                        ${state.activeTab === 'my-jobs' ? renderMyJobsTab() : ''}
+                        ${state.activeTab === 'profile' ? renderProfileTab() : ''}
+                    </div>
+
+                    <!-- Bottom Navigation -->
+                    <div class="fixed bottom-0 left-0 right-0 bg-white border-t border-green-100 shadow-2xl">
+                        <div class="text-center py-1 bg-gradient-to-r from-green-600 to-emerald-600">
+                            <span class="text-white font-black text-sm tracking-widest">COMING SOON</span>
+                        </div>
+                        <div class="flex justify-around items-center py-2">
+                            <button
+                                onclick="state.activeTab = 'browse'; render();"
+                                class="relative flex flex-col items-center gap-1 px-4 py-3 rounded-xl transition-all ${state.activeTab === 'browse' ? 'text-green-600 bg-green-50' : 'text-gray-400 hover:text-gray-600'}"
+                            >
+                                <span class="text-2xl">🔍</span>
+                                <span class="text-xs font-bold">Browse</span>
+                                <span class="absolute -top-1 -right-1 bg-green-500 text-white text-[8px] px-1 rounded-full font-bold">SOON</span>
+                            </button>
+                            <button
+                                onclick="state.activeTab = 'post'; render();"
+                                class="relative flex flex-col items-center gap-1 px-4 py-3 rounded-xl transition-all ${state.activeTab === 'post' ? 'text-green-600 bg-green-50' : 'text-gray-400 hover:text-gray-600'}"
+                            >
+                                <span class="text-2xl">✏️</span>
+                                <span class="text-xs font-bold">Post</span>
+                                <span class="absolute -top-1 -right-1 bg-green-500 text-white text-[8px] px-1 rounded-full font-bold">SOON</span>
+                            </button>
+                            <button
+                                onclick="state.activeTab = 'my-jobs'; render();"
+                                class="relative flex flex-col items-center gap-1 px-4 py-3 rounded-xl transition-all ${state.activeTab === 'my-jobs' ? 'text-green-600 bg-green-50' : 'text-gray-400 hover:text-gray-600'}"
+                            >
+                                <span class="text-2xl">📋</span>
+                                <span class="text-xs font-bold">My Jobs</span>
+                                <span class="absolute -top-1 -right-1 bg-green-500 text-white text-[8px] px-1 rounded-full font-bold">SOON</span>
+                            </button>
+                            <button
+                                onclick="state.activeTab = 'profile'; render();"
+                                class="relative flex flex-col items-center gap-1 px-4 py-3 rounded-xl transition-all ${state.activeTab === 'profile' ? 'text-green-600 bg-green-50' : 'text-gray-400 hover:text-gray-600'}"
+                            >
+                                <span class="text-2xl">👤</span>
+                                <span class="text-xs font-bold">Profile</span>
+                                <span class="absolute -top-1 -right-1 bg-green-500 text-white text-[8px] px-1 rounded-full font-bold">SOON</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    ${renderJobModal()}
+                </div>
+            `;
+        }
+
+        // Initialize App
+        async function init() {
+            await loadUserProfile();
+            await loadJobs();
+            render();
+        }
+
+        init();
+    </script>
+</body>
+</html>
